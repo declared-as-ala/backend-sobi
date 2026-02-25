@@ -1,0 +1,463 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use App\Client;
+use App\Mail\SoumissionMail;
+use App\Categ;
+use App\Slide;
+use App\Coordinate;
+use App\Product;
+use App\SousCategory;
+use App\Brand;
+use App\Article;
+use App\Aroma;
+use App\Tag;
+use Carbon\Carbon;
+use App\Annonce;
+use App\Service;
+use App\Contact;
+use App\Newsletter;
+use TCG\Voyager\Models\Page;
+use App\Services\SmsService;
+use App\Faq;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\OrderShipped;
+use App\Commande;
+use App\CommandeDetail;
+use App\Redirection;
+use App\Review;
+use App\SeoPage;
+use Auth;
+
+class ApisController extends Controller
+{
+    /** Product listing fields used in multiple endpoints */
+    private const PRODUCT_SELECT = [
+        'id', 'slug', 'designation_fr', 'cover', 'new_product', 'best_seller', 'note',
+        'alt_cover', 'description_cover', 'prix', 'pack', 'promo', 'promo_expiration_date',
+    ];
+    /** Listing + qte/brand for shop grids */
+    private const PRODUCT_LISTING = [
+        'id', 'slug', 'designation_fr', 'cover', 'new_product', 'best_seller', 'note',
+        'alt_cover', 'description_cover', 'prix', 'pack', 'promo', 'promo_expiration_date',
+        'qte', 'brand_id', 'sous_categorie_id',
+    ];
+
+    public function testSms($tel)
+    {
+        /* $service = new SmsService();
+        return ['resp' => $service->send_sms($tel, 'test')]; */
+    }
+
+    public function accueil()
+    {
+        $new_product = Product::where('new_product', 1)->where('publier', 1)
+            ->select(self::PRODUCT_SELECT)
+            ->with('aromes:id,designation_fr')
+            ->latest('created_at')->limit(8)->get();
+        $packs = Product::where('pack', 1)->where('publier', 1)
+            ->select(self::PRODUCT_SELECT)
+            ->with('aromes:id,designation_fr')
+            ->latest('created_at')->limit(4)->get();
+        $last_articles = Article::where('publier', 1)->latest('created_at')
+            ->select('id', 'slug', 'designation_fr', 'cover', 'created_at')->limit(4)->get();
+        $ventes_flash = Product::whereNotNull('promo')->where('publier', 1)
+            ->whereDate('promo_expiration_date', '>', Carbon::now())
+            ->select(self::PRODUCT_SELECT)
+            ->with('aromes:id,designation_fr')
+            ->get();
+        $categories = Categ::select('id', 'cover', 'slug', 'designation_fr')
+            ->with(['sous_categories' => function ($query) {
+                $query->select('id', 'slug', 'designation_fr', 'categorie_id');
+            }])->get();
+        $best_sellers = Product::where('best_seller', 1)->where('publier', 1)
+            ->select(self::PRODUCT_SELECT)
+            ->with('aromes:id,designation_fr')
+            ->latest('created_at')->limit(4)->get();
+        return [
+            'categories' => $categories,
+            'last_articles' => $last_articles,
+            'ventes_flash' => $ventes_flash,
+            'new_product' => $new_product,
+            'packs' => $packs,
+            'best_sellers' => $best_sellers,
+        ];
+    }
+
+    public function home()
+    {
+        $new_product = Product::where('new_product', 1)->where('publier', 1)
+            ->select(self::PRODUCT_SELECT)
+            ->with('aromes:id,designation_fr')
+            ->latest('created_at')->limit(8)->get();
+        $packs = Product::where('pack', 1)->where('publier', 1)
+            ->select(self::PRODUCT_SELECT)
+            ->with('aromes:id,designation_fr')
+            ->latest('created_at')->limit(4)->get();
+        $last_articles = Article::where('publier', 1)->latest('created_at')
+            ->select('id', 'slug', 'designation_fr', 'cover', 'created_at')->limit(4)->get();
+        $ventes_flash = Product::whereNotNull('promo')->where('publier', 1)
+            ->whereDate('promo_expiration_date', '>', Carbon::now())
+            ->select(self::PRODUCT_SELECT)
+            ->with('aromes:id,designation_fr')
+            ->get();
+        $best_sellers = Product::where('best_seller', 1)->where('publier', 1)
+            ->select(self::PRODUCT_SELECT)
+            ->with('aromes:id,designation_fr')
+            ->latest('created_at')->limit(4)->get();
+        return [
+            'last_articles' => $last_articles,
+            'ventes_flash' => $ventes_flash,
+            'new_product' => $new_product,
+            'packs' => $packs,
+            'best_sellers' => $best_sellers,
+        ];
+    }
+
+    public function categories()
+    {
+        return Categ::select('id', 'cover', 'slug', 'designation_fr')
+            ->with(['sous_categories' => function ($query) {
+                $query->select('id', 'slug', 'designation_fr', 'categorie_id');
+            }])->get();
+    }
+
+    public function slides()
+    {
+        return Slide::all();
+    }
+
+    public function coordonnees()
+    {
+        return Coordinate::first();
+    }
+
+    public function latestProducts()
+    {
+        $new_product = Product::where('new_product', 1)->where('publier', 1)
+            ->select(self::PRODUCT_SELECT)
+            ->latest('created_at')->limit(8)->get();
+        $packs = Product::where('pack', 1)->where('publier', 1)
+            ->select(self::PRODUCT_SELECT)
+            ->with('aromes:id,designation_fr')
+            ->latest('created_at')->limit(4)->get();
+        $best_sellers = Product::where('best_seller', 1)->where('publier', 1)
+            ->select(self::PRODUCT_SELECT)
+            ->with('aromes:id,designation_fr')
+            ->latest('created_at')->limit(4)->get();
+        return ['new_product' => $new_product, 'packs' => $packs, 'best_sellers' => $best_sellers];
+    }
+
+    public function latestPacks()
+    {
+        return Product::where('pack', 1)->where('publier', 1)
+            ->select(self::PRODUCT_SELECT)
+            ->latest('created_at')->limit(4)->get();
+    }
+
+    /** Meilleurs ventes: up to 8 products for blog recommendations and other uses. */
+    public function bestSellers()
+    {
+        return Product::where('best_seller', 1)->where('publier', 1)
+            ->select(self::PRODUCT_SELECT)
+            ->latest('created_at')->limit(8)->get();
+    }
+
+    public function productDetails($slug)
+    {
+        return Product::where('slug', $slug)->where('publier', 1)
+            ->with('sous_categorie.categorie')
+            ->with('tags')
+            ->with('aromes')
+            ->with(['reviews.user' => function ($query) {
+                $query->select('id', 'name', 'avatar');
+            }])
+            ->first();
+    }
+
+    public function allProducts(Request $request)
+    {
+        $query = Product::where('publier', 1)->select(self::PRODUCT_LISTING);
+
+        if ($search = trim((string) $request->get('search', ''))) {
+            $query->where(function ($q) use ($search) {
+                $q->where('designation_fr', 'like', '%' . $search . '%')
+                    ->orWhere('slug', 'like', '%' . $search . '%');
+            });
+        }
+        if ($request->filled('brand_id')) {
+            $query->where('brand_id', $request->get('brand_id'));
+        }
+        if ($request->filled('min_price')) {
+            $query->where('prix', '>=', (float) $request->get('min_price'));
+        }
+        if ($request->filled('max_price')) {
+            $query->where('prix', '<=', (float) $request->get('max_price'));
+        }
+
+        $sort = $request->get('sort');
+        if ($sort === 'price_asc') {
+            $query->orderBy('prix');
+        } elseif ($sort === 'price_desc') {
+            $query->orderByDesc('prix');
+        } else {
+            $query->latest('created_at');
+        }
+
+        $products = $query->get();
+        $brandIds = $products->pluck('brand_id')->filter()->unique()->values()->all();
+        $brands = Brand::whereIn('id', $brandIds)->get();
+        $categories = Categ::select('id', 'slug', 'designation_fr', 'cover')->get();
+
+        return [
+            'products' => $products,
+            'brands' => $brands,
+            'categories' => $categories,
+        ];
+    }
+
+    public function productsByCategoryId($slug)
+    {
+        $category = Categ::where('slug', $slug)->first();
+        if (!$category) {
+            return response()->json(['error' => 'Category not found'], 404);
+        }
+        $sous_categories = SousCategory::where('categorie_id', $category->id)->get();
+        $products = Product::where('publier', 1)
+            ->whereIn('sous_categorie_id', $sous_categories->pluck('id'))
+            ->with('aromes')->with('tags')
+            ->get();
+        $brands = Brand::whereIn('id', $products->pluck('brand_id'))->get();
+        return [
+            'category' => $category,
+            'sous_categories' => $sous_categories,
+            'products' => $products,
+            'brands' => $brands,
+        ];
+    }
+
+    public function productsByBrandId($brand_id)
+    {
+        $brand = Brand::find($brand_id);
+        $categories = Categ::all();
+        $products = Product::where('brand_id', $brand_id)->where('publier', 1)
+            ->with('aromes')->with('tags')->get();
+        $brands = Brand::all();
+        return ['categories' => $categories, 'products' => $products, 'brands' => $brands, 'brand' => $brand];
+    }
+
+    public function productsBySubCategoryId($slug)
+    {
+        $sous_category = SousCategory::where('slug', $slug)->first();
+
+        if (!$sous_category) {
+            return ['sous_category' => null, 'products' => [], 'brands' => [], 'sous_categories' => []];
+        }
+
+        $products = Product::where('sous_categorie_id', $sous_category->id)
+            ->where('publier', 1)
+            ->select(self::PRODUCT_LISTING)
+            ->latest('created_at')
+            ->get();
+
+        $brandIds = $products->pluck('brand_id')->unique()->filter()->values()->all();
+        $brands = Brand::whereIn('id', $brandIds)->get();
+        $sous_categories = SousCategory::where('categorie_id', $sous_category->categorie_id)
+            ->select('id', 'slug', 'designation_fr', 'categorie_id')
+            ->get();
+
+        return [
+            'sous_category' => $sous_category,
+            'products' => $products,
+            'brands' => $brands,
+            'sous_categories' => $sous_categories,
+        ];
+    }
+
+    public function searchProduct($text)
+    {
+        $products = Product::where('designation_fr', 'LIKE', '%' . $text . '%')->where('publier', 1)
+            ->with('aromes')->with('tags')->get();
+        $brands = Brand::whereIn('id', $products->pluck('brand_id'))->get();
+        return ['products' => $products, 'brands' => $brands];
+    }
+
+    public function searchProductBySubCategoryText($slug, $text)
+    {
+        $sous_category = SousCategory::where('slug', $slug)->first();
+        if ($sous_category) {
+            $products = Product::where('sous_categorie_id', $sous_category->id)->where('publier', 1)
+                ->where('designation_fr', 'LIKE', '%' . $text . '%')
+                ->with('aromes')->with('tags')
+                ->get();
+        } else {
+            $products = Product::where('publier', 1)
+                ->where('designation_fr', 'LIKE', '%' . $text . '%')
+                ->with('aromes')->with('tags')
+                ->get();
+        }
+        $brands = Brand::whereIn('id', $products->pluck('brand_id'))->get();
+        return ['products' => $products, 'brands' => $brands];
+    }
+
+    public function allArticles()
+    {
+        return Article::where('publier', 1)->get();
+    }
+
+    public function articleDetails($slug)
+    {
+        return Article::where('slug', $slug)->where('publier', 1)->first();
+    }
+
+    public function latestArticles()
+    {
+        return Article::where('publier', 1)->latest('created_at')
+            ->select('id', 'slug', 'designation_fr', 'cover', 'created_at')->limit(4)->get();
+    }
+
+    public function allBrands()
+    {
+        return Brand::select('id', 'logo', 'designation_fr', 'alt_cover')->get();
+    }
+
+    public function aromes()
+    {
+        return Aroma::all();
+    }
+
+    public function tags()
+    {
+        return Tag::all();
+    }
+
+    public function packs()
+    {
+        return Product::where('pack', 1)->where('publier', 1)
+            ->latest('created_at')
+            ->select(self::PRODUCT_SELECT)
+            ->get();
+    }
+
+    public function flash()
+    {
+        return Product::whereNotNull('promo')->where('publier', 1)
+            ->whereDate('promo_expiration_date', '>', Carbon::now())
+            ->select(self::PRODUCT_SELECT)
+            ->get();
+    }
+
+    public function media()
+    {
+        return Annonce::first();
+    }
+
+    public function newsLetter(Request $request)
+    {
+        $exist = Newsletter::where('email', $request->input('email'))->get();
+        if ($exist->count() > 0) {
+            return response()->json(['error' => 'Vous êtes déjà inscrit!'], 406);
+        }
+        $n = new Newsletter();
+        $n->email = $request->input('email');
+        $n->save();
+        return ['success' => 'Merci de vous inscrire!'];
+    }
+
+    public function sendContact(Request $request)
+    {
+        $new_contact = new Contact();
+        $new_contact->name = $request->name;
+        $new_contact->email = $request->email;
+        $new_contact->message = $request->message;
+        $new_contact->save();
+        return ['success' => 'Votre message envoyer avec succès'];
+    }
+
+    public function services()
+    {
+        return Service::all();
+    }
+
+    public function faqs()
+    {
+        return Faq::all();
+    }
+
+    public function pages()
+    {
+        return Page::select('id', 'title')->get();
+    }
+
+    public function getPageBySlug($slug)
+    {
+        return Page::where('slug', $slug)->first();
+    }
+
+    public function send_email(Request $request)
+    {
+        $commande = Commande::find($request->commande_id);
+        $details = CommandeDetail::where('commande_id', $request->commande_id)->get();
+        $data = [
+            'titre' => 'Nouvelle commande',
+            'commande' => $commande,
+            'details' => $details,
+        ];
+        Mail::to('wissemdebech@gmail.com')->send(new SoumissionMail($data));
+    }
+
+    public function similar_products($sous_categorie_id)
+    {
+        $sous_category = SousCategory::find($sous_categorie_id);
+        if (!$sous_category) {
+            return ['products' => collect()];
+        }
+        $products = Product::where('sous_categorie_id', $sous_category->id)
+            ->where('publier', 1)
+            ->where('rupture', 1)
+            ->select(self::PRODUCT_SELECT)
+            ->limit(4)
+            ->get();
+
+        if ($products->count() < 4) {
+            $categ_id = $sous_category->categorie_id;
+            $existingIds = $products->pluck('id')->all();
+            $products2 = Product::where('publier', 1)
+                ->where('rupture', 1)
+                ->whereNotIn('id', $existingIds)
+                ->whereHas('sous_categorie', function ($query) use ($categ_id) {
+                    $query->where('categorie_id', $categ_id);
+                })
+                ->select(self::PRODUCT_SELECT)
+                ->limit(4 - $products->count())
+                ->get();
+            $products = $products->merge($products2);
+        }
+        return ['products' => $products];
+    }
+
+    public function redirections()
+    {
+        return Redirection::all();
+    }
+
+    public function add_review(Request $request)
+    {
+        $review = new Review();
+        $review->user_id = Auth::user()->id;
+        $review->product_id = $request->product_id ?? null;
+        $review->stars = $request->stars ?? 5;
+        $review->comment = $request->comment ?? null;
+        $review->publier = ($review->stars >= 4) ? 1 : 0;
+        $review->save();
+        return $review;
+    }
+
+    public function seoPage($name)
+    {
+        return SeoPage::where('page', $name)->first();
+    }
+}
