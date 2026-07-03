@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use TCG\Voyager\Database\Schema\SchemaManager;
 use TCG\Voyager\Events\BreadDataAdded;
 use TCG\Voyager\Events\BreadDataDeleted;
@@ -21,6 +22,7 @@ use TCG\Voyager\Events\BreadImagesDeleted;
 use TCG\Voyager\Facades\Voyager;
 use TCG\Voyager\Http\Controllers\Traits\BreadRelationshipParser;
 use App\Services\SmsService;
+use App\Services\ClientService;
 use App\Message;
 use Illuminate\Support\Facades\Mail;
 
@@ -144,6 +146,20 @@ class AdminCommandeController extends Controller
     }
     public function storeCommandeApi(Request $request)
     {
+        \Log::info('backend.add_commande.legacy.start', ['payload_keys' => array_keys(@$request->commande ?? [])]);
+
+        // Idempotency: if Idempotency-Key header present and we have the column, return existing order to prevent duplicates on 429 retry
+        $idempotencyKey = $request->header('Idempotency-Key');
+        if ($idempotencyKey && Schema::hasColumn((new Commande)->getTable(), 'idempotency_key')) {
+            $existing = Commande::where('idempotency_key', $idempotencyKey)->first();
+            if ($existing) {
+                return [
+                    'id' => $existing->id,
+                    'message' => 'Merci pour votre commande',
+                    'alert-type' => 'success',
+                ];
+            }
+        }
 
         //add_facture
         $new_facture = new Commande();
@@ -161,9 +177,19 @@ class AdminCommandeController extends Controller
         $new_facture->frais_livraison = @$request->commande['frais_livraison'];
         $new_facture->note = @$request->commande['note'];
 
-        if(@$request->commande['user_id']){
-        $new_facture->user_id = @$request->commande['user_id'];
-
+        if (! empty(@$request->commande['user_id'])) {
+            $new_facture->user_id = @$request->commande['user_id'];
+            if (Schema::hasColumn($new_facture->getTable(), 'client_id')) {
+                $new_facture->client_id = @$request->commande['user_id'];
+            }
+        } else {
+            $client = app(ClientService::class)->findOrCreateClientFromDeliveryInfo(@$request->commande ?: []);
+            if ($client) {
+                $new_facture->user_id = $client->id;
+                if (Schema::hasColumn($new_facture->getTable(), 'client_id')) {
+                    $new_facture->client_id = $client->id;
+                }
+            }
         }
         $new_facture->livraison_nom = @$request->commande['livraison_nom'];
         $new_facture->livraison_prenom = @$request->commande['livraison_prenom'];
@@ -187,6 +213,9 @@ class AdminCommandeController extends Controller
         $nb = str_pad($nb, 4, '0', STR_PAD_LEFT);
         $new_facture->numero = date('Y') . '/' . $nb;
         /*  */
+        if ($idempotencyKey && Schema::hasColumn($new_facture->getTable(), 'idempotency_key')) {
+            $new_facture->idempotency_key = $idempotencyKey;
+        }
         $new_facture->save();
 
         //add_achats
