@@ -9,15 +9,18 @@ use App\Models\Commande;
 use App\Models\CommandeDetail;
 use App\Models\Message;
 use App\Models\Product;
+use App\Services\ClientService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Schema;
 use App\Mail\SoumissionMail;
 
 class OrderService
 {
     public function __construct(
         private readonly SmsService $smsService,
+        private readonly ClientService $clientService,
     ) {}
 
     // ─── Create from API (frontend) ─────────────────────────────────────
@@ -31,6 +34,20 @@ class OrderService
     {
         return DB::transaction(function () use ($data): Commande {
             $commandeData = $data['commande'] ?? [];
+
+            Log::info('order.createFromApi.start', ['source' => 'api', 'payload_keys' => array_keys($commandeData)]);
+
+            // Auto link or create client from livraison data when no explicit user_id/client_id
+            $client = null;
+            if (empty($commandeData['client_id'])) {
+                $client = $this->clientService->findOrCreateClientFromDeliveryInfo($commandeData);
+                if ($client) {
+                    $commandeData['user_id'] = $client->id;
+                    if (Schema::hasTable('commandes') && Schema::hasColumn('commandes', 'client_id')) {
+                        $commandeData['client_id'] = $client->id;
+                    }
+                }
+            }
 
             $commande = Commande::create([
                 'nom' => $commandeData['livraison_nom'] ?? $commandeData['nom'] ?? null,
@@ -47,6 +64,7 @@ class OrderService
                 'frais_livraison' => $commandeData['frais_livraison'] ?? null,
                 'note' => $commandeData['note'] ?? null,
                 'user_id' => $commandeData['user_id'] ?? null,
+                'client_id' => $commandeData['client_id'] ?? null,
                 'livraison_nom' => $commandeData['livraison_nom'] ?? null,
                 'livraison_prenom' => $commandeData['livraison_prenom'] ?? null,
                 'livraison_email' => $commandeData['livraison_email'] ?? null,
@@ -106,6 +124,20 @@ class OrderService
         return DB::transaction(function () use ($data): Commande {
             $commandeData = $data['commande'] ?? $data;
 
+            Log::info('order.storeCommandeAdmin.start', ['source' => 'admin', 'payload_keys' => array_keys($commandeData)]);
+
+            // Auto link or create client from livraison / client data when no explicit client_id
+            $client = null;
+            if (empty($commandeData['client_id'])) {
+                $client = $this->clientService->findOrCreateClientFromDeliveryInfo($commandeData);
+                if ($client) {
+                    $commandeData['user_id'] = $client->id;
+                    if (Schema::hasTable('commandes') && Schema::hasColumn('commandes', 'client_id')) {
+                        $commandeData['client_id'] = $client->id;
+                    }
+                }
+            }
+
             $commande = Commande::create([
                 'nom' => $commandeData['nom'] ?? null,
                 'prenom' => $commandeData['prenom'] ?? null,
@@ -121,6 +153,7 @@ class OrderService
                 'frais_livraison' => $commandeData['frais_livraison'] ?? null,
                 'note' => $commandeData['note'] ?? null,
                 'user_id' => $commandeData['user_id'] ?? null,
+                'client_id' => $commandeData['client_id'] ?? null,
                 'livraison_nom' => $commandeData['livraison_nom'] ?? null,
                 'livraison_prenom' => $commandeData['livraison_prenom'] ?? null,
                 'livraison_email' => $commandeData['livraison_email'] ?? null,

@@ -13,7 +13,10 @@ class Client extends Model
         'phone_1',
         'phone_2',
         'adresse',
+        'region',
+        'ville',
+        'code_postale',
         'matricule',
-
+        'source',
     ];
 }
