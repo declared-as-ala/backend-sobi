@@ -3,7 +3,6 @@
 /public/storage
 /storage/*.key
 
-.env
 .env.backup
 .phpunit.result.cache
 docker-compose.override.yml
@@ -12,10 +11,10 @@ Homestead.yaml
 npm-debug.log
 yarn-error.log
 /.idea
-.env
 node_modules
 vendor
 temp_auto_push.bat
 temp_interactive_push.bat
 .gitignore
 branch_structure.json
+config.bat
